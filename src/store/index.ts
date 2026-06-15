@@ -50,12 +50,14 @@ interface ResultState {
   results: TrainingResult[]
   isPlayingBack: boolean
   playbackIndex: number
+  selectedTaskId: string | null
   setCurrentResult: (result: TrainingResult | null) => void
   addResult: (result: TrainingResult) => void
   generateResult: () => TrainingResult
   startPlayback: () => void
   stopPlayback: () => void
   setPlaybackIndex: (index: number) => void
+  setSelectedTask: (taskId: string | null) => void
 }
 
 interface CardState {
@@ -171,7 +173,9 @@ export const useStore = create<StoreState>((set, get) => ({
   results: sampleResults,
   isPlayingBack: false,
   playbackIndex: 0,
+  selectedTaskId: null,
   setCurrentResult: (result) => set({ currentResult: result }),
+  setSelectedTask: (taskId) => set({ selectedTaskId: taskId }),
   addResult: (result) => set((state) => ({ results: [...state.results, result] })),
   generateResult: () => {
     const state = get()

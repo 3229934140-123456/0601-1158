@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useStore } from '../../store'
-import { sampleResults, workshops } from '../../data/mockData'
+import { sampleResults, sampleTasks, workshops } from '../../data/mockData'
+import type { TrainingTask } from '../../types'
 import { Header, StatusBadge, VoiceGuidePanel, Dialog, ProgressIndicator } from '../ui/CommonUI'
 import { SafetyCardViewer } from '../ui/SafetyCards'
 
@@ -136,14 +137,24 @@ export default function Results() {
   const startPlayback = useStore(s => s.startPlayback)
   const stopPlayback = useStore(s => s.stopPlayback)
   const setPlaybackIndex = useStore(s => s.setPlaybackIndex)
+  const selectedTaskId = useStore(s => s.selectedTaskId)
+  const setSelectedTask = useStore(s => s.setSelectedTask)
 
-  const [selectedResult, setSelectedResult] = useState(currentResult || results[0])
+  const allResults = currentResult ? [currentResult, ...results.filter(r => r.id !== currentResult.id)] : results
+
+  const filteredResults = selectedTaskId
+    ? allResults.filter(r => r.taskId === selectedTaskId)
+    : allResults
+
+  const [selectedResult, setSelectedResult] = useState(filteredResults[0] || currentResult || results[0])
   const [showPlayback, setShowPlayback] = useState(false)
   const [showRetrainConfirm, setShowRetrainConfirm] = useState(false)
 
-  const displayResult = selectedResult || currentResult || results[0]
+  const displayResult = selectedResult || currentResult || (filteredResults[0] ?? results[0])
 
-  const allResults = currentResult ? [currentResult, ...results.filter(r => r.id !== currentResult.id)] : results
+  const taskName = selectedTaskId
+    ? (sampleTasks.find(t => t.id === selectedTaskId)?.title || `任务 ${selectedTaskId}`)
+    : null
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -187,21 +198,44 @@ export default function Results() {
       <div className="pt-24 pb-12 px-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="vr-panel p-6">
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {allResults.map(result => (
+            {taskName && (
+              <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-primary-500/10 border border-primary-500/30">
+                <span className="text-lg">📋</span>
+                <div className="flex-1">
+                  <span className="text-white/60 text-sm">当前筛选任务：</span>
+                  <span className="font-bold text-vr-glow ml-2">{taskName}</span>
+                </div>
                 <button
-                  key={result.id}
-                  onClick={() => setSelectedResult(result)}
-                  className={`px-5 py-3 rounded-lg whitespace-nowrap transition-all ${
-                    displayResult?.id === result.id
-                      ? 'bg-vr-glow/20 border-2 border-vr-glow'
-                      : 'bg-white/5 border border-white/10 hover:border-white/30'
-                  }`}
+                  onClick={() => setSelectedTask(null)}
+                  className="text-sm text-safety-danger hover:underline"
                 >
-                  <div className="font-medium">{result.userName}</div>
-                  <div className="text-xs text-white/50">{result.completedAt}</div>
+                  清除筛选
                 </button>
-              ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {filteredResults.length > 0 ? (
+                filteredResults.map(result => (
+                  <button
+                    key={result.id}
+                    onClick={() => setSelectedResult(result)}
+                    className={`px-5 py-3 rounded-lg whitespace-nowrap transition-all ${
+                      displayResult?.id === result.id
+                        ? 'bg-vr-glow/20 border-2 border-vr-glow'
+                        : 'bg-white/5 border border-white/10 hover:border-white/30'
+                    }`}
+                  >
+                    <div className="font-medium">{result.userName}</div>
+                    <div className="text-xs text-white/50">{result.completedAt}</div>
+                  </button>
+                ))
+              ) : (
+                <div className="py-8 text-center w-full text-white/50">
+                  <div className="text-3xl mb-2">📭</div>
+                  <p>该任务暂无成绩记录</p>
+                </div>
+              )}
             </div>
           </div>
 

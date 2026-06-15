@@ -87,9 +87,11 @@ function LeakEffect({ position, active }: { position: [number, number, number]; 
   )
 }
 
-function AccidentScene3D({ state, onAction }: {
+function AccidentScene3D({ state, allCompleted, onAction, onGoToCollaboration }: {
   state: AccidentState
+  allCompleted: boolean
   onAction: (action: string, correct: boolean) => void
+  onGoToCollaboration: () => void
 }) {
   const [alarmOn, setAlarmOn] = useState(true)
 
@@ -203,14 +205,24 @@ function AccidentScene3D({ state, onAction }: {
         height={3}
       />
 
-      <InteractiveButton
-        position={[0, 1.5, 8]}
-        label="进入协作演练 →"
-        icon="👥"
-        color="#52c41a"
-        size={[2.5, 0.8, 0.2]}
-        onClick={() => onAction('goto_collaboration', true)}
-      />
+      {allCompleted && (
+        <InteractiveButton
+          position={[0, 1.5, 8]}
+          label="进入协作演练 →"
+          icon="👥"
+          color="#52c41a"
+          size={[2.5, 0.8, 0.2]}
+          onClick={onGoToCollaboration}
+        />
+      )}
+      {!allCompleted && state.type && (
+        <FloatingText
+          position={[0, 2, 8]}
+          text="完成所有事故模拟后解锁协作演练"
+          color="#faad14"
+          fontSize={14}
+        />
+      )}
     </Scene3D>
   )
 }
@@ -244,6 +256,15 @@ export default function AccidentSimulation() {
     { type: 'mechanical', name: '机械伤害', description: '模拟设备异常运转导致的机械伤害风险', correctAction: 'emergency_stop' }
   ]
 
+  const allScenariosCompleted =
+    currentScenario === scenarios.length - 1 && accidentState.isResolved
+
+  const handleGoToCollaboration = () => {
+    if (allScenariosCompleted) {
+      setScene('collaboration')
+    }
+  }
+
   const showNotification = (msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
     setToastMsg(msg)
     setToastType(type)
@@ -264,11 +285,6 @@ export default function AccidentSimulation() {
   }
 
   const handleAction = (action: string, correct: boolean) => {
-    if (action === 'goto_collaboration') {
-      setScene('collaboration')
-      return
-    }
-
     recordAction({
       actionName: action,
       isCorrect: correct,
@@ -277,15 +293,20 @@ export default function AccidentSimulation() {
 
     if (correct) {
       setAccidentState(prev => ({ ...prev, isResolved: true, isActive: false }))
-      showNotification('✅ 事故已成功处置！操作正确。', 'success')
+
+      const isLast = currentScenario === scenarios.length - 1
+      showNotification(
+        isLast
+          ? '🎉 所有事故模拟完成！可以进入协作演练了'
+          : '✅ 事故已成功处置！操作正确。',
+        isLast ? 'success' : 'success'
+      )
 
       setTimeout(() => {
         if (currentScenario < scenarios.length - 1) {
           startScenario(currentScenario + 1)
-        } else {
-          showNotification('🎉 所有事故模拟完成！进入协作演练', 'success')
         }
-      }, 2000)
+      }, 2500)
     } else {
       incrementError()
       setAccidentState(prev => ({ ...prev, hasError: true }))
@@ -296,7 +317,12 @@ export default function AccidentSimulation() {
 
   return (
     <div className="w-full h-full relative">
-      <AccidentScene3D state={accidentState} onAction={handleAction} />
+      <AccidentScene3D
+        state={accidentState}
+        allCompleted={allScenariosCompleted}
+        onAction={handleAction}
+        onGoToCollaboration={handleGoToCollaboration}
+      />
 
       <Header title={workshop ? `⚠️ ${workshop.name} - 事故模拟` : '⚠️ 事故模拟'} showBack />
 
@@ -339,13 +365,33 @@ export default function AccidentSimulation() {
           ))}
         </div>
 
-        <button
-          onClick={() => !accidentState.isActive && !accidentState.isResolved && startScenario(currentScenario)}
-          disabled={accidentState.isActive}
-          className="vr-button w-full !py-3 disabled:opacity-50"
-        >
-          {accidentState.isActive ? '处理中...' : accidentState.isResolved ? '等待下一阶段' : '▶ 开始模拟'}
-        </button>
+        {allScenariosCompleted ? (
+          <button
+            onClick={handleGoToCollaboration}
+            className="vr-button w-full !py-3 animate-pulse-glow"
+          >
+            👥 进入协作演练 →
+          </button>
+        ) : (
+          <button
+            onClick={() => !accidentState.isActive && !accidentState.isResolved && startScenario(currentScenario)}
+            disabled={accidentState.isActive}
+            className="vr-button w-full !py-3 disabled:opacity-50"
+          >
+            {accidentState.isActive ? '处理中...' : accidentState.isResolved ? '等待下一阶段' : '▶ 开始模拟'}
+          </button>
+        )}
+
+        {!allScenariosCompleted && !accidentState.isActive && !accidentState.isResolved && currentScenario > 0 && (
+          <p className="text-center text-white/50 text-xs mt-2">
+            进度：{currentScenario} / {scenarios.length} 个事故场景已完成
+          </p>
+        )}
+        {allScenariosCompleted && (
+          <p className="text-center text-safety-success text-sm mt-2">
+            ✅ 全部 {scenarios.length} 个场景已完成
+          </p>
+        )}
       </div>
 
       <div className="absolute top-24 right-6 z-20 w-72 space-y-4">
@@ -399,9 +445,13 @@ export default function AccidentSimulation() {
 
       <VoiceGuidePanel
         text={
-          accidentState.isActive
+          allScenariosCompleted
+            ? '🎉 恭喜！您已完成所有事故模拟训练。现在可以进入协作演练环节，与队友配合作业。'
+            : accidentState.isActive
             ? `警告！发生${scenarios[currentScenario]?.name}，请保持冷静，立即采取正确的应急处理措施！`
-            : '请点击"开始模拟"按钮启动事故场景。遇到紧急情况时，确保自身安全是第一位的。'
+            : currentScenario === 0 && !accidentState.isResolved
+            ? '请点击"开始模拟"按钮启动事故场景。遇到紧急情况时，确保自身安全是第一位的。'
+            : `已完成 ${currentScenario} / ${scenarios.length} 个事故场景，请继续处理下一个。`
         }
       />
 

@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useStore } from '../../store'
 import { workshops, sampleTasks } from '../../data/mockData'
-import { Header, StatusBadge, VoiceGuidePanel, Dialog } from '../ui/CommonUI'
+import { Header, StatusBadge, VoiceGuidePanel, Dialog, Toast } from '../ui/CommonUI'
+import type { TrainingTask } from '../../types'
 
 interface TaskForm {
   title: string
@@ -12,15 +13,32 @@ interface TaskForm {
   deadline: string
 }
 
+const STORAGE_KEY = 'vr_training_tasks'
+
 export default function AdminPanel() {
   const setScene = useStore(s => s.setScene)
   const results = useStore(s => s.results)
   const setRole = useStore(s => s.setRole)
+  const setSelectedTask = useStore(s => s.setSelectedTask)
 
   const [activeTab, setActiveTab] = useState<'tasks' | 'results' | 'stats'>('tasks')
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
-  const [tasks, setTasks] = useState(sampleTasks)
+  const [tasks, setTasks] = useState<TrainingTask[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        return JSON.parse(saved)
+      }
+    } catch (e) {
+      console.error('读取本地任务失败', e)
+    }
+    return sampleTasks
+  })
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [formErrors, setFormErrors] = useState<{ title?: string; deadline?: string; duration?: string; passingScore?: string }>({})
+  const [showToast, setShowToast] = useState(false)
+  const [toastMsg, setToastMsg] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error' | 'warning' | 'info'>('success')
 
   const [taskForm, setTaskForm] = useState<TaskForm>({
     title: '',
@@ -28,18 +46,75 @@ export default function AdminPanel() {
     description: '',
     duration: 30,
     passingScore: 80,
-    deadline: '2026-07-01'
+    deadline: ''
   })
 
-  const handleCreateTask = () => {
-    if (!taskForm.title.trim()) return
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
+    } catch (e) {
+      console.error('保存任务失败', e)
+    }
+  }, [tasks])
 
-    const newTask = {
+  const showNotification = (msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+    setToastMsg(msg)
+    setToastType(type)
+    setShowToast(true)
+    setTimeout(() => setShowToast(false), 3000)
+  }
+
+  const validateForm = (): boolean => {
+    const errors: typeof formErrors = {}
+
+    if (!taskForm.title.trim()) {
+      errors.title = '请输入任务名称'
+    } else if (taskForm.title.trim().length < 2) {
+      errors.title = '任务名称至少2个字符'
+    }
+
+    if (!taskForm.deadline) {
+      errors.deadline = '请选择截止日期'
+    } else {
+      const deadlineDate = new Date(taskForm.deadline)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (isNaN(deadlineDate.getTime())) {
+        errors.deadline = '日期格式不正确'
+      } else if (deadlineDate < today) {
+        errors.deadline = '截止日期不能早于今天'
+      }
+    }
+
+    if (taskForm.duration <= 0 || taskForm.duration > 240) {
+      errors.duration = '培训时长需在1-240分钟之间'
+    }
+
+    if (taskForm.passingScore < 0 || taskForm.passingScore > 100) {
+      errors.passingScore = '及格分数需在0-100之间'
+    }
+
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const handleCreateTask = () => {
+    if (!validateForm()) {
+      showNotification('❌ 请检查表单填写是否正确', 'error')
+      return
+    }
+
+    const newTask: TrainingTask = {
       id: `t_${Date.now()}`,
-      ...taskForm,
+      title: taskForm.title.trim(),
+      workshopId: taskForm.workshopId,
+      description: taskForm.description.trim(),
       scenarios: ['equipment', 'accident', 'collaboration'],
+      duration: taskForm.duration,
+      passingScore: taskForm.passingScore,
+      deadline: taskForm.deadline,
       assignedUsers: [],
-      status: 'published' as const
+      status: 'published'
     }
 
     setTasks([newTask, ...tasks])
@@ -50,8 +125,27 @@ export default function AdminPanel() {
       description: '',
       duration: 30,
       passingScore: 80,
-      deadline: '2026-07-01'
+      deadline: ''
     })
+    setFormErrors({})
+    showNotification('✅ 培训任务发布成功！', 'success')
+  }
+
+  const handleTaskClick = (taskId: string) => {
+    setSelectedTaskId(taskId)
+    setSelectedTask(taskId)
+    setActiveTab('results')
+  }
+
+  const handleDeleteTask = (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('确定要删除这个培训任务吗？')) {
+      setTasks(tasks.filter(t => t.id !== taskId))
+      if (selectedTaskId === taskId) {
+        setSelectedTaskId(null)
+      }
+      showNotification('🗑️ 任务已删除', 'info')
+    }
   }
 
   const selectedTask = tasks.find(t => t.id === selectedTaskId)
@@ -136,7 +230,7 @@ export default function AdminPanel() {
                         <tr
                           key={task.id}
                           className="border-b border-white/5 hover:bg-white/5 cursor-pointer"
-                          onClick={() => { setSelectedTaskId(task.id); setActiveTab('results') }}
+                          onClick={() => handleTaskClick(task.id)}
                         >
                           <td className="py-4 px-4 font-medium">{task.title}</td>
                           <td className="py-4 px-4">
@@ -153,10 +247,16 @@ export default function AdminPanel() {
                             />
                           </td>
                           <td className="py-4 px-4">
-                            <button className="text-primary-500 hover:underline text-sm mr-3">
-                              编辑
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleTaskClick(task.id) }}
+                              className="text-primary-500 hover:underline text-sm mr-3"
+                            >
+                              查看成绩
                             </button>
-                            <button className="text-safety-danger hover:underline text-sm">
+                            <button
+                              onClick={(e) => handleDeleteTask(task.id, e)}
+                              className="text-safety-danger hover:underline text-sm"
+                            >
                               删除
                             </button>
                           </td>
@@ -355,20 +455,19 @@ export default function AdminPanel() {
 
       <Dialog
         isOpen={showNewTaskModal}
-        onClose={() => setShowNewTaskModal(false)}
+        onClose={() => { setShowNewTaskModal(false); setFormErrors({}) }}
         title="📝 发布新培训任务"
         footer={
           <>
             <button
-              onClick={() => setShowNewTaskModal(false)}
+              onClick={() => { setShowNewTaskModal(false); setFormErrors({}) }}
               className="vr-button vr-button-secondary"
             >
               取消
             </button>
             <button
               onClick={handleCreateTask}
-              disabled={!taskForm.title.trim()}
-              className="vr-button disabled:opacity-50"
+              className="vr-button"
             >
               发布任务
             </button>
@@ -381,10 +480,16 @@ export default function AdminPanel() {
             <input
               type="text"
               value={taskForm.title}
-              onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+              onChange={(e) => {
+                setTaskForm({ ...taskForm, title: e.target.value })
+                if (formErrors.title) setFormErrors({ ...formErrors, title: undefined })
+              }}
               placeholder="请输入任务名称..."
-              className="vr-input w-full"
+              className={`vr-input w-full ${formErrors.title ? 'border-safety-danger ring-1 ring-safety-danger' : ''}`}
             />
+            {formErrors.title && (
+              <p className="text-safety-danger text-xs mt-2">❌ {formErrors.title}</p>
+            )}
           </div>
 
           <div>
@@ -417,35 +522,55 @@ export default function AdminPanel() {
               <input
                 type="number"
                 value={taskForm.duration}
-                onChange={(e) => setTaskForm({ ...taskForm, duration: +e.target.value })}
-                className="vr-input w-full"
-                min={5}
-                max={120}
+                onChange={(e) => {
+                  setTaskForm({ ...taskForm, duration: +e.target.value })
+                  if (formErrors.duration) setFormErrors({ ...formErrors, duration: undefined })
+                }}
+                className={`vr-input w-full ${formErrors.duration ? 'border-safety-danger ring-1 ring-safety-danger' : ''}`}
+                min={1}
+                max={240}
               />
+              {formErrors.duration && (
+                <p className="text-safety-danger text-xs mt-2">❌ {formErrors.duration}</p>
+              )}
             </div>
             <div>
               <label className="block text-white/80 mb-2">及格分数</label>
               <input
                 type="number"
                 value={taskForm.passingScore}
-                onChange={(e) => setTaskForm({ ...taskForm, passingScore: +e.target.value })}
-                className="vr-input w-full"
+                onChange={(e) => {
+                  setTaskForm({ ...taskForm, passingScore: +e.target.value })
+                  if (formErrors.passingScore) setFormErrors({ ...formErrors, passingScore: undefined })
+                }}
+                className={`vr-input w-full ${formErrors.passingScore ? 'border-safety-danger ring-1 ring-safety-danger' : ''}`}
                 min={0}
                 max={100}
               />
+              {formErrors.passingScore && (
+                <p className="text-safety-danger text-xs mt-2">❌ {formErrors.passingScore}</p>
+              )}
             </div>
             <div>
-              <label className="block text-white/80 mb-2">截止日期</label>
+              <label className="block text-white/80 mb-2">截止日期 *</label>
               <input
                 type="date"
                 value={taskForm.deadline}
-                onChange={(e) => setTaskForm({ ...taskForm, deadline: e.target.value })}
-                className="vr-input w-full"
+                onChange={(e) => {
+                  setTaskForm({ ...taskForm, deadline: e.target.value })
+                  if (formErrors.deadline) setFormErrors({ ...formErrors, deadline: undefined })
+                }}
+                className={`vr-input w-full ${formErrors.deadline ? 'border-safety-danger ring-1 ring-safety-danger' : ''}`}
               />
+              {formErrors.deadline && (
+                <p className="text-safety-danger text-xs mt-2">❌ {formErrors.deadline}</p>
+              )}
             </div>
           </div>
         </div>
       </Dialog>
+
+      {showToast && <Toast message={toastMsg} type={toastType} />}
     </div>
   )
 }

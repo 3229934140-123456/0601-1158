@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Scene3D from '../3d/Scene3D'
 import { InteractiveButton, FloatingText, InteractivePanel } from '../3d/InteractiveElements'
 import { useStore } from '../../store'
@@ -228,18 +228,42 @@ function Lobby3D() {
 }
 
 export default function Lobby() {
+  const setScene = useStore(s => s.setScene)
   const userName = useStore(s => s.userName)
   const avatar = useStore(s => s.avatar)
-  const [showAvatarCreator, setShowAvatarCreator] = useState(!userName || !avatar.id)
+  const [showAvatarCreator, setShowAvatarCreator] = useState(false)
   const [showCards, setShowCards] = useState(false)
   const setRole = useStore(s => s.setRole)
+  const [isFirstVisit, setIsFirstVisit] = useState(() => {
+    return !userName || userName.trim() === ''
+  })
+
+  const handleStationSelect = () => {
+    if (!userName || userName.trim() === '') {
+      setShowAvatarCreator(true)
+      setIsFirstVisit(true)
+    } else {
+      setScene('station-select')
+    }
+  }
+
+  useEffect(() => {
+    if (isFirstVisit && (!userName || userName.trim() === '')) {
+      setShowAvatarCreator(true)
+    }
+  }, [isFirstVisit, userName])
+
+  const handleAvatarComplete = () => {
+    setShowAvatarCreator(false)
+    setIsFirstVisit(false)
+  }
 
   return (
     <div className="w-full h-full relative">
       <Lobby3D />
 
       {showAvatarCreator && (
-        <AvatarCustomizer onComplete={() => setShowAvatarCreator(false)} />
+        <AvatarCustomizer onComplete={handleAvatarComplete} />
       )}
 
       <div className="absolute top-0 left-0 right-0 z-30 p-6">
@@ -277,7 +301,7 @@ export default function Lobby() {
             <span className="text-xs text-white/50">创建/编辑</span>
           </button>
           <button
-            onClick={() => setShowAvatarCreator(true)}
+            onClick={handleStationSelect}
             className="vr-card px-8 py-4 flex flex-col items-center gap-2 hover:border-vr-glow"
           >
             <span className="text-4xl">🏭</span>
@@ -285,7 +309,7 @@ export default function Lobby() {
             <span className="text-xs text-white/50">选择培训车间</span>
           </button>
           <button
-            onClick={() => setShowAvatarCreator(true)}
+            onClick={() => setScene('results')}
             className="vr-card px-8 py-4 flex flex-col items-center gap-2 hover:border-vr-glow"
           >
             <span className="text-4xl">🔄</span>

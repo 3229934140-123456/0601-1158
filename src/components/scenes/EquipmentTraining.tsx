@@ -7,19 +7,11 @@ import { EquipmentModel, ProtectiveGearModel } from '../3d/EquipmentModels'
 import { WarningZone, FloatingText, InteractiveButton } from '../3d/InteractiveElements'
 import { hazardZones } from '../../data/mockData'
 
-function EquipmentScene3D() {
-  const setScene = useStore(s => s.setScene)
-  const setCurrentStep = useStore(s => s.setCurrentStep)
-  const currentStep = useStore(s => s.currentStep)
-
-  const handleNext = () => {
-    if (currentStep < 2) {
-      setCurrentStep(currentStep + 1)
-    } else {
-      setScene('accident')
-    }
-  }
-
+function EquipmentScene3D({ onNext, canProceed, step }: {
+  onNext: () => void
+  canProceed: boolean
+  step: number
+}) {
   return (
     <Scene3D cameraPosition={[0, 3, 10]}>
       <FloatingText position={[0, 5.5, -4]} text="设备认知与防护用品佩戴" color="#00d4ff" fontSize={24} />
@@ -43,11 +35,11 @@ function EquipmentScene3D() {
 
       <InteractiveButton
         position={[0, 1.5, 6]}
-        label="进入事故模拟 →"
+        label={step < 2 ? "下一步 →" : "进入事故模拟 →"}
         icon="⚠️"
-        color="#faad14"
+        color={canProceed ? "#faad14" : "#8c8c8c"}
         size={[2.5, 0.8, 0.2]}
-        onClick={handleNext}
+        onClick={onNext}
       />
     </Scene3D>
   )
@@ -63,29 +55,40 @@ export default function EquipmentTraining() {
   const currentStep = useStore(s => s.currentStep)
   const [showToast, setShowToast] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error' | 'warning' | 'info'>('warning')
 
   const workshop = workshops.find(w => w.id === selectedWorkshopId)
   const requiredGears = protectiveGears.filter(g => g.required)
-  const allRequiredCollected = requiredGears.every(g => collectedGears.includes(g.id))
+  const missingGears = requiredGears.filter(g => !collectedGears.includes(g.id))
+  const allRequiredCollected = missingGears.length === 0
 
-  const showNotification = (msg: string) => {
+  const showNotification = (msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
     setToastMsg(msg)
+    setToastType(type)
     setShowToast(true)
-    setTimeout(() => setShowToast(false), 2500)
+    setTimeout(() => setShowToast(false), 3500)
   }
 
   const handleNext = () => {
-    if (!allRequiredCollected) {
-      showNotification('⚠️ 请先佩戴所有必需的防护用品（安全帽、防护眼镜、防割手套）')
+    if (currentStep === 0 && !allRequiredCollected) {
+      const missingNames = missingGears.map(g => g.name).join('、')
+      showNotification(`⚠️ 还缺少必需防护用品：${missingNames}，请先佩戴后再继续`, 'warning')
       return
     }
+
     if (currentStep < 2) {
       setCurrentStep(currentStep + 1)
-      showNotification('✅ 防护用品已正确佩戴！')
+      if (currentStep === 0) {
+        showNotification('✅ 防护用品已正确佩戴！现在请查看设备安全标牌', 'success')
+      } else if (currentStep === 1) {
+        showNotification('👍 设备认知完成！请识别场景中的危险区域', 'success')
+      }
     } else {
       setScene('accident')
     }
   }
+
+  const canProceedToNext = currentStep > 0 || allRequiredCollected
 
   const steps = [
     { id: 1, title: '防护用品佩戴', desc: '抓取并佩戴必需的个人防护用品' },
@@ -95,7 +98,11 @@ export default function EquipmentTraining() {
 
   return (
     <div className="w-full h-full relative">
-      <EquipmentScene3D />
+      <EquipmentScene3D
+        onNext={handleNext}
+        canProceed={canProceedToNext}
+        step={currentStep}
+      />
 
       <Header title={workshop ? `🛠 ${workshop.name} - 设备认知培训` : '🛠 设备认知培训'} showBack />
 
@@ -189,14 +196,30 @@ export default function EquipmentTraining() {
       </div>
 
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30">
-        <button onClick={handleNext} className="vr-button text-lg !px-12 !py-4 animate-pulse-glow">
-          下一步 →
+        <button
+          onClick={handleNext}
+          className={`vr-button text-lg !px-12 !py-4 ${canProceedToNext ? 'animate-pulse-glow' : 'opacity-60'}`}
+        >
+          {currentStep < 2 ? '下一步 →' : '进入事故模拟 →'}
         </button>
+        {!canProceedToNext && (
+          <p className="text-center text-safety-warning text-sm mt-3">
+            ⚠️ 请先佩戴所有必需防护用品
+          </p>
+        )}
       </div>
 
-      <VoiceGuidePanel text="在开始作业前，请先正确佩戴个人防护用品。点击悬浮的防护用品进行抓取，然后查看周围设备的安全标牌。" />
+      <VoiceGuidePanel
+        text={
+          currentStep === 0
+            ? '在开始作业前，请先正确佩戴个人防护用品。点击悬浮的防护用品进行抓取。必需用品会标有★标记。'
+            : currentStep === 1
+            ? '请点击周围的设备，查看详细的安全操作说明和警告事项。'
+            : '请识别场景中的危险区域，点击地面上闪烁的危险区域标记进行识别。'
+        }
+      />
 
-      {showToast && <Toast message={toastMsg} type={toastMsg.startsWith('✅') ? 'success' : 'warning'} />}
+      {showToast && <Toast message={toastMsg} type={toastType} />}
     </div>
   )
 }
